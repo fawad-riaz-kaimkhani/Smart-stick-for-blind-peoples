@@ -1,0 +1,114 @@
+import machine
+import network
+import urequests
+import utime
+
+# WiFi credentials
+wifi_ssid = "Redmi 12"
+wifi_password = "12345679"
+
+# CallMeBot API details
+whatsapp_phone_number = "923231084299"  # Replace with your WhatsApp number
+callmebot_api_key = "8079583"  # Replace with your CallMeBot API key
+callmebot_api_url = "https://api.callmebot.com/whatsapp.php?phone={}&apikey={}&text=".format(whatsapp_phone_number, callmebot_api_key)
+
+# Define pin numbers
+TRIG_PIN = 14
+ECHO_PIN = 27
+BUZZER_PIN = 12
+VIBRATOR_PIN = 26
+BUTTON_PIN = 34
+
+# Initialize ultrasonic sensor, buzzer, and vibrator
+trig = machine.Pin(TRIG_PIN, machine.Pin.OUT)
+echo = machine.Pin(ECHO_PIN, machine.Pin.IN)
+buzzer = machine.Pin(BUZZER_PIN, machine.Pin.OUT)
+vibrator = machine.Pin(VIBRATOR_PIN, machine.Pin.OUT)
+button = machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
+
+# Function to connect to WiFi
+def connect_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    if not wlan.isconnected():
+        print("Connecting to WiFi...")
+        wlan.active(True)
+        wlan.connect(wifi_ssid, wifi_password)
+        timeout = 10  # Timeout in seconds
+        start = utime.time()
+        while not wlan.isconnected():
+            if utime.time() - start > timeout:
+                raise OSError("WiFi connection timeout")
+            utime.sleep(1)
+        print("WiFi connected:", wlan.ifconfig())
+    else:
+        print("Already connected to WiFi:", wlan.ifconfig())
+
+# Function to measure distance using ultrasonic sensor
+def measure_distance():
+    trig.value(1)
+    utime.sleep_us(10)
+    trig.value(0)
+
+    duration = machine.time_pulse_us(echo, 1, 30000)  # Max distance: 30 cm
+    distance_cm = duration / 58.0
+
+    return distance_cm
+
+# Function to send WhatsApp message via CallMeBot API
+def send_whatsapp_message(message):
+    try:
+        url = callmebot_api_url + message.replace(" ", "+")
+        response = urequests.get(url)
+        print("Message sent successfully!")
+        print("Response:", response.text)
+        response.close()
+    except Exception as e:
+        print("Error sending message:", e)
+
+# Main program loop
+def main():
+    try:
+        connect_wifi()
+        last_button_state = 1
+        debounce_delay = 1000  # Increased debounce delay to 2000 milliseconds (2 seconds)
+        last_debounce_time = utime.ticks_ms()  # Initialize last debounce time
+
+        button_pressed_time = 0
+        message_sent = False
+
+        while True:
+            distance = measure_distance()
+            print(f"Distance: {distance:.2f} cm")
+
+            if distance < 50:
+                buzzer.value(1)  # Turn on the buzzer
+                vibrator.value(1)  # Turn on the vibrator
+            else:
+                buzzer.value(0)  # Turn off the buzzer
+                vibrator.value(0)  # Turn off the vibrator
+
+            button_state = button.value()
+
+            if button_state != last_button_state:
+                last_debounce_time = utime.ticks_ms()
+
+            if (utime.ticks_ms() - last_debounce_time) > debounce_delay:
+                if button_state == 0:  # Button is pressed (active low)
+                    if not message_sent or (utime.time() - button_pressed_time) > 10:  # Allow re-press after 10 seconds
+                        print("Button pressed!")
+                        send_whatsapp_message("Emergency! Help needed!")
+                        button_pressed_time = utime.time()
+                        message_sent = True
+                        utime.sleep(5)  # Delay to avoid multiple sends for a single press
+
+            if button_state == 1:
+                message_sent = False
+
+            last_button_state = button_state
+            utime.sleep(0.1)
+    
+    except Exception as e:
+        print("Error:", e)
+
+if __name__ == "__main__":
+    main()
