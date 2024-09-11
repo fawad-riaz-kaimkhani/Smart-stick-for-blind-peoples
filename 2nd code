@@ -1,0 +1,74 @@
+from machine import Pin, time_pulse_us
+import network
+import urequests as requests  # for HTTP requests, since MicroPython doesn't have 'requests' library
+import time
+
+# Wi-Fi connection details
+WIFI_SSID = 'Redmi 12'
+WIFI_PASSWORD = '12345679'
+
+# CallMeBot API details
+CALLMEBOT_API_KEY = '8079583'
+WHATSAPP_NUMBER = '923231084299'
+
+# Define pin connections
+ultrasonic_trigger = Pin(14, Pin.OUT)
+ultrasonic_echo = Pin(27, Pin.IN)
+buzzer_pin = Pin(12, Pin.OUT)
+emergency_button = Pin(34, Pin.IN, Pin.PULL_UP)
+
+def connect_wifi():
+    sta_if = network.WLAN(network.STA_IF)
+    if not sta_if.isconnected():
+        print('Connecting to WiFi...')
+        sta_if.active(True)
+        sta_if.connect(WIFI_SSID, WIFI_PASSWORD)
+        while not sta_if.isconnected():
+            pass
+    print('WiFi Connected:', sta_if.ifconfig())
+
+def send_whatsapp_message():
+    message = 'Emergency! Please check!'
+    url = f'https://api.callmebot.com/whatsapp.php?phone=923231084299&text=This+is+a+test&apikey=8079583'
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            print("Emergency message sent successfully.")
+        else:
+            print(f"Failed to send emergency message. Status code: {response.status_code}")
+            print("Response:", response.text)
+        response.close()
+    except Exception as e:
+        print("Error sending message:", e)
+
+def ultrasonic_distance():
+    ultrasonic_trigger.value(1)
+    time.sleep_us(10)
+    ultrasonic_trigger.value(0)
+    pulse_time = time_pulse_us(ultrasonic_echo, 1, 30000)  # 30ms timeout for about 5m max range
+    distance_cm = (pulse_time / 2) / 29.1  # Convert pulse time to distance in cm
+    return distance_cm
+
+def alert_on():
+    buzzer_pin.value(1)
+
+def alert_off():
+    buzzer_pin.value(0)
+
+# Main loop
+connect_wifi()
+alert_off()  # Ensure buzzer is initially off
+while True:
+    distance = ultrasonic_distance()
+    print("Distance:", distance, "cm")
+
+    if distance <= 50:
+        alert_on()
+    else:
+        alert_off()
+
+    if emergency_button.value() == 0:  # Button is pressed (active low)
+        send_whatsapp_message()
+        while emergency_button.value() == 0:  # Wait until the button is released
+            time.sleep(0.1)  # Add a short delay to avoid busy waiting
+    time.sleep(0.1)  # Adjust delay as needed
